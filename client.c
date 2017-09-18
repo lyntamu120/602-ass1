@@ -11,7 +11,7 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
-#define PORT "3490" // the port client will be connecting to
+// #define PORT "3490" // the port client will be connecting to
 #define MAXDATASIZE 100 // max number of bytes we can get at once
 // get sockaddr, IPv4 or IPv6:
 void *get_in_addr(struct sockaddr *sa){
@@ -22,13 +22,14 @@ void *get_in_addr(struct sockaddr *sa){
 }
 
 int main(int argc, char *argv[]) {
+    char* PORT = argv[2];
     int sockfd, numbytes;
     char buf[MAXDATASIZE];
     struct addrinfo hints, *servinfo, *p;
     int rv, num;
     char s[INET6_ADDRSTRLEN];
-    if (argc != 2) {
-        fprintf(stderr,"usage: client hostname\n");
+    if (argc != 3) {
+        fprintf(stderr,"usage: client hostname, PORT\n");
         exit(1);
     }
     memset(&hints, 0, sizeof hints);
@@ -78,8 +79,7 @@ int main(int argc, char *argv[]) {
         }
         else {
                 printf("Client:Message being sent: %s\n",buf);
-                num = recv(sockfd, buf, sizeof(buf),0);
-                if ( num <= 0 )
+                if ( (num = recv(sockfd, buf, sizeof(buf),0)) <= 0 )
                 {
                         printf("Either Connection Closed or Error\n");
                         //Break from the While
@@ -87,8 +87,8 @@ int main(int argc, char *argv[]) {
                 }
 
                 buf[num] = '\0';
-                printf("Client:Message Received From Server -  %s\n",buf);
-           }
+                printf("Client:Message Received From Server: %s\n",buf);
+          }
     }
 
 

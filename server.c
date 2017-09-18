@@ -13,7 +13,7 @@
 #include <arpa/inet.h>
 #include <sys/wait.h>
 #include <signal.h>
-#define PORT "3490" // the port users will be connecting to
+// #define PORT "3490" // the port users will be connecting to
 #define BACKLOG 10 // how many pending connections queue will hold
 
 void sigchld_handler(int s) {
@@ -31,7 +31,7 @@ void *get_in_addr(struct sockaddr *sa) {
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-int main(void) {
+int main(int argc, char *argv[]) {
     int sockfd, new_fd; // listen on sock_fd, new connection on new_fd
     struct addrinfo hints, *servinfo, *p;
     struct sockaddr_storage their_addr; // connector's address information
@@ -41,6 +41,12 @@ int main(void) {
     int yes=1;
     char s[INET6_ADDRSTRLEN];
     int rv, num;
+    char *PORT = argv[1];
+
+    if (argc != 2) {
+        fprintf(stderr,"usage: PORT\n");
+        exit(1);
+    }
 
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
@@ -90,6 +96,10 @@ int main(void) {
 
     printf("server: waiting for connections...\n");
 
+    //try fork
+    int pid;
+
+
     while(1) { // main accept() loop
         sin_size = sizeof their_addr;
         new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
@@ -101,22 +111,18 @@ int main(void) {
         get_in_addr((struct sockaddr *)&their_addr), s, sizeof s);
         printf("server: got connection from %s\n", s);
 
-        // if (!fork()) { // this is the child process
-        //     close(sockfd); // child doesn't need the listener
-        //     if (send(new_fd, "Hello, world!", 13, 0) == -1)
-        //         perror("send");
-        //     close(new_fd);
-        //     exit(0);
-        // }
-
-        while(1) {
-
-                if ((num = recv(new_fd, buffer, 1024,0))== -1) {
+        //try fork
+        if((pid = fork()) < 0) {
+            printf("error on fork\n");
+        } else if(pid == 0) {
+            close(sockfd);
+            while (1) {
+                if ((num = recv(new_fd, buffer, 1024, 0)) == -1) {
                         perror("recv");
                         exit(1);
                 }
                 else if (num == 0) {
-                        printf("Connection closed\n");
+                        printf("Connection closed from%s\n", s);
                         //So I can now wait for another client
                         break;
                 }
@@ -128,11 +134,11 @@ int main(void) {
                      close(new_fd);
                      break;
                 }
-
-                printf("Server:Msg being sent: %s\nNumber of bytes sent: %d\n", buffer, strlen(buffer));
-
-        } //End of Inner While...
-
+                printf("Server:Msg being sent: %s\nNumber of bytes sent: %lu\n", buffer, strlen(buffer));
+            }
+            close(new_fd);
+            exit(0);
+        }
 
         close(new_fd); // parent doesn't need this
     }
