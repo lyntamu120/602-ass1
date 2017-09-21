@@ -67,7 +67,7 @@ ssize_t writen(int fd, const void *vptr, size_t n) {
 void str_cli(FILE *fp, int sockfd){
 	char sendline[MAXLINE], recvline[MAXLINE];
 	while (fgets(sendline, MAXLINE, fp) != NULL) {
-      if (strlen (sendline) > MAXDATASIZE  - 1) {
+      if (strlen (sendline) > MAXDATASIZE ) {
           printf("Your input exceeds the MAXDATASIZE!\n");
           continue;
       }
