@@ -13,14 +13,35 @@
 #include <arpa/inet.h>
 #include <sys/wait.h>
 #include <signal.h>
-// #define PORT "3490" // the port users will be connecting to
+
 #define BACKLOG 10 // how many pending connections queue will hold
+#define MAXLINE 1024 // maximum size of stdout
 
 void sigchld_handler(int s) {
     // waitpid() might overwrite errno, so we save and restore it:
     int saved_errno = errno;
     while(waitpid(-1, NULL, WNOHANG) > 0);
     errno = saved_errno;
+}
+
+ssize_t writen(int fd, const void *vptr, size_t n) {
+    size_t nleft;
+    ssize_t nwritten;
+    const char *ptr;
+    ptr = vptr;
+    nleft = n;
+    while (nleft > 0) {
+            if ((nwritten = write(fd, ptr, nleft)) <= 0) {
+            if (nwritten < 0 && errno == EINTR) {
+                nwritten = 0; /* and call write() again */
+            } else {
+                return (-1); /* error */
+            }
+        }
+        nleft -= nwritten;
+        ptr += nwritten;
+    }
+    return (n);
 }
 
 // get sockaddr, IPv4 or IPv6:
@@ -31,15 +52,33 @@ void *get_in_addr(struct sockaddr *sa) {
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
+void server_echo(int sockfd){
+   ssize_t n;
+   char buf[MAXLINE];
+   again:
+   while ( (n = read(sockfd, buf, MAXLINE)) > 0) {
+       writen(sockfd, buf, n);
+   }
+   if (n == 0) {
+       printf("connection closed\n");
+   }
+   if (n < 0 && errno == EINTR) {
+       goto again;
+   } else if (n < 0) {
+       perror("str_echo: read error");
+   }
+
+}
+
 int main(int argc, char *argv[]) {
     int sockfd, new_fd; // listen on sock_fd, new connection on new_fd
     struct addrinfo hints, *servinfo, *p;
     struct sockaddr_storage their_addr; // connector's address information
     socklen_t sin_size;
-    char buffer[1024];
     struct sigaction sa;
     int yes=1;
     char s[INET6_ADDRSTRLEN];
+    char ipstr[INET6_ADDRSTRLEN];
     int rv, num;
     char *PORT = argv[1];
 
@@ -49,7 +88,7 @@ int main(int argc, char *argv[]) {
     }
 
     memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_UNSPEC;
+    hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE; // use my IP
 
@@ -59,6 +98,7 @@ int main(int argc, char *argv[]) {
     }
 
     for(p = servinfo; p != NULL; p = p->ai_next) {
+        void *addr;
         if ((sockfd = socket(p->ai_family, p->ai_socktype,
             p->ai_protocol)) == -1) {
             perror("server: socket");
@@ -74,6 +114,10 @@ int main(int argc, char *argv[]) {
             perror("server: bind");
             continue;
         }
+        struct sockaddr_in *ipv4 = (struct sockaddr_in *)p->ai_addr;
+        addr = &(ipv4->sin_addr);
+        // convert the IP to a string and print it:
+        inet_ntop(p->ai_family, addr, ipstr, sizeof ipstr);
         break;
     }
     freeaddrinfo(servinfo); // all done with this structure
@@ -94,12 +138,9 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    printf("server: waiting for connections...\n");
+    printf("server: waiting for connections at %s...\n", ipstr);
 
-    //try fork
     int pid;
-
-
     while(1) { // main accept() loop
         sin_size = sizeof their_addr;
         new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
@@ -116,26 +157,9 @@ int main(int argc, char *argv[]) {
             printf("error on fork\n");
         } else if(pid == 0) {
             close(sockfd);
-            while (1) {
-                if ((num = recv(new_fd, buffer, 1024, 0)) == -1) {
-                        perror("recv");
-                        exit(1);
-                }
-                else if (num == 0) {
-                        printf("Connection closed\n");
-                        break;
-                }
-                buffer[num] = '\0';
-                printf("Server:Msg Received %s\n", buffer);
-                if ((send(new_fd,buffer, strlen(buffer),0))== -1)
-                {
-                     fprintf(stderr, "Failure Sending Message\n");
-                     close(new_fd);
-                     break;
-                }
-                printf("Server:Msg being sent: %s\nNumber of bytes sent: %lu\n", buffer, strlen(buffer));
-            }
-            close(new_fd);
+
+            server_echo(new_fd);
+            
             exit(0);
         }
 

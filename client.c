@@ -11,14 +11,72 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
-// #define PORT "3490" // the port client will be connecting to
-#define MAXDATASIZE 100 // max number of bytes we can get at once
+
+#define MAXDATASIZE 10 // max number of bytes we can get at once
+#define MAXLINE 1024
 // get sockaddr, IPv4 or IPv6:
 void *get_in_addr(struct sockaddr *sa){
     if (sa->sa_family == AF_INET) {
         return &(((struct sockaddr_in*)sa)->sin_addr);
     }
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
+}
+
+ssize_t readline(int fd, void *vptr, size_t maxlen) {
+    ssize_t n, rc;
+    char c, *ptr;
+    ptr = vptr;
+    for (n = 1; n < maxlen; n++) {
+        again:
+        if ((rc = read(fd, &c, 1)) == 1) {
+            *ptr++ = c;
+            if (c == '\n') {
+                break; //detect a newline
+            }
+        } else if (rc == 0) {
+            *ptr = 0;
+            return (n - 1); // detect EOF, n - 1 bytes were read
+        } else {
+            if (errno == EINTR) goto again;
+            return (-1); /* error, errno set by read() */
+        }
+    }
+    *ptr = 0; /* null terminate like fgets() */
+    return (n);
+}
+
+ssize_t writen(int fd, const void *vptr, size_t n) {
+    size_t nleft;
+    ssize_t nwritten;
+    const char *ptr;
+    ptr = vptr;
+    nleft = n;
+    while (nleft > 0) {
+            if ( (nwritten = write(fd, ptr, nleft)) <= 0) {
+            if (nwritten < 0 && errno == EINTR)
+                nwritten = 0; //Detect the 'Enter' error and call write() again
+            else
+                return (-1); /* error */
+            }
+        nleft -= nwritten;
+        ptr += nwritten;
+    }
+    return (n);
+}
+
+void str_cli(FILE *fp, int sockfd){
+	char sendline[MAXLINE], recvline[MAXLINE];
+	while (fgets(sendline, MAXLINE, fp) != NULL) {
+      if (strlen (sendline) > MAXDATASIZE  - 1) {
+          printf("Your input exceeds the MAXDATASIZE!\n");
+          continue;
+      }
+	  writen(sockfd, sendline, strlen (sendline));
+	  if (readline(sockfd, recvline, MAXLINE) == 0) {
+          perror("str_cli: server terminated prematurely");
+      }
+	  fputs(recvline, stdout);
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -62,36 +120,7 @@ int main(int argc, char *argv[]) {
     freeaddrinfo(servinfo); // all done with this structure
 
 
-    // if ((numbytes = recv(sockfd, buf, MAXDATASIZE-1, 0)) == -1) {
-    //     perror("recv");
-    //     exit(1);
-    // }
-    // buf[numbytes] = '\0';
-    // printf("client: received '%s'\n",buf);
-
-    while(1) {
-        printf("Client: Enter Data for Server:\n");
-        fgets(buf,MAXDATASIZE-1,stdin);
-        if ((send(sockfd,buf, strlen(buf),0))== -1) {
-                fprintf(stderr, "Failure Sending Message\n");
-                close(sockfd);
-                exit(1);
-        }
-        else {
-                printf("Client:Message being sent: %s\n",buf);
-                if ( (num = recv(sockfd, buf, sizeof(buf),0)) <= 0 )
-                {
-                        printf("Either Connection Closed or Error\n");
-                        //Break from the While
-                        break;
-                }
-
-                buf[num] = '\0';
-                printf("Client:Message Received From Server: %s\n",buf);
-          }
-    }
-
-
+    str_cli(stdin, sockfd);
     close(sockfd);
     return 0;
 }
